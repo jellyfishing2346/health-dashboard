@@ -8,7 +8,8 @@ from sqlalchemy import create_engine, text
 
 st.set_page_config(page_title="Health Dashboard (Streamlit)", page_icon="💚", layout="wide")
 
-DB_URL = os.getenv("DATABASE_URL") or st.secrets.get("DATABASE_URL")
+# Prefer secrets over env
+DB_URL = st.secrets.get("DATABASE_URL") or os.getenv("DATABASE_URL")
 if not DB_URL:
     st.error("DATABASE_URL not set. Add it to your environment or Streamlit secrets.")
     st.stop()
@@ -20,6 +21,20 @@ elif DB_URL.startswith("postgres://"):
     engine = create_engine(DB_URL.replace("postgres://", "postgresql://", 1))
 else:
     engine = create_engine(DB_URL)
+
+# Early connectivity check with friendly errors
+try:
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+except Exception as e:
+    msg = str(e)
+    if "password authentication failed" in msg:
+        st.error("Database password is incorrect. Update the DATABASE_URL secret.")
+    elif "could not translate host name" in msg:
+        st.error("Database host is invalid. Use the Direct connection host and add sslmode=require.")
+    else:
+        st.error(f"Database connection failed: {msg}")
+    st.stop()
 
 @st.cache_data(ttl=60)
 def load_tables():
@@ -39,7 +54,16 @@ def load_tables():
                 df[c] = pd.to_datetime(df[c], utc=True, errors="coerce")
     return users, physical, mental, goals
 
-users_df, physical_df, mental_df, goals_df = load_tables()
+# Wrap table load to surface migration/schema issues
+try:
+    users_df, physical_df, mental_df, goals_df = load_tables()
+except Exception as e:
+    msg = str(e)
+    if "relation" in msg and "does not exist" in msg:
+        st.error("Schema not found. Run Prisma migrations against this DATABASE_URL (npx prisma migrate deploy).")
+    else:
+        st.error(f"Failed to load data: {msg}")
+    st.stop()
 
 st.sidebar.header("Filters")
 # User filter
@@ -109,7 +133,7 @@ with col3:
     st.metric("Avg Sleep", f"{sleep.mean():.1f} h" if not sleep.empty else "0 h")
 with col4:
     mood = ment["mood"].dropna()
-    st.metric("Avg Mood", f"{mood.mean():.1f}/5" if not mood.empty else "0/5")
+    st.metric("Avg Mood", f"{mood.mean():.1f}/5" if not ment.empty else "0/5")
 
 st.divider()
 
