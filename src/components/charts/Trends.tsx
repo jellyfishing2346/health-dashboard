@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -21,17 +21,49 @@ interface TrendsProps {
 const toDate = (d: any) => new Date(d);
 
 export const Trends: React.FC<TrendsProps> = ({ physicalData, mentalData }) => {
-  const recentPhysical = physicalData.slice(-14);
-  const recentMental = mentalData.slice(-14);
+  const [range, setRange] = useState<'7d' | '14d' | '30d' | '90d' | 'all' | 'custom'>('14d');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
-  const labelsPhysical = recentPhysical.map((d) => toDate(d.date).toLocaleDateString());
-  const labelsMental = recentMental.map((d) => toDate(d.date).toLocaleDateString());
+  const filterByRange = <T extends { date: any }>(items: T[]) => {
+    const sorted = items.slice().sort((a, b) => +toDate(a.date) - +toDate(b.date));
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
 
-  const heartRateData = recentPhysical.map((d) => d.heartRate ?? null);
-  const sleepData = recentPhysical.map((d) => d.sleepHours ?? null);
+    if (range === 'all') return sorted;
 
-  const moodData = recentMental.map((d) => d.mood ?? null);
-  const stressData = recentMental.map((d) => d.stressLevel ?? null);
+    if (range === 'custom' && startDate && endDate) {
+      const start = new Date(startDate).getTime();
+      const end = new Date(endDate).getTime() + (day - 1); // inclusive end of day
+      return sorted.filter((x) => {
+        const t = toDate(x.date).getTime();
+        return t >= start && t <= end;
+      });
+    }
+
+    const daysMap: Record<Exclude<typeof range, 'custom' | 'all'>, number> = {
+      '7d': 7,
+      '14d': 14,
+      '30d': 30,
+      '90d': 90,
+    } as const;
+
+    const selectedDays = daysMap[range as '7d' | '14d' | '30d' | '90d'] ?? 14;
+    const cutoff = now - selectedDays * day;
+    return sorted.filter((x) => toDate(x.date).getTime() >= cutoff);
+  };
+
+  const p = filterByRange(physicalData);
+  const m = filterByRange(mentalData);
+
+  const labelsPhysical = p.map((d) => toDate(d.date).toLocaleDateString());
+  const labelsMental = m.map((d) => toDate(d.date).toLocaleDateString());
+
+  const heartRateData = p.map((d) => d.heartRate ?? null);
+  const sleepData = p.map((d) => d.sleepHours ?? null);
+
+  const moodData = m.map((d) => d.mood ?? null);
+  const stressData = m.map((d) => d.stressLevel ?? null);
 
   const commonOptions: any = {
     responsive: true,
@@ -48,6 +80,45 @@ export const Trends: React.FC<TrendsProps> = ({ physicalData, mentalData }) => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Controls */}
+      <div className="lg:col-span-2 -mb-2">
+        <div className="flex flex-wrap items-center gap-2 justify-end">
+          {(['7d','14d','30d','90d','all'] as const).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`px-3 py-1.5 rounded-md text-sm ${range === r ? 'bg-primary-100 text-primary-700' : 'text-gray-600 hover:bg-gray-100'}`}
+              aria-pressed={range === r}
+            >
+              {r.toUpperCase()}
+            </button>
+          ))}
+          <button
+            onClick={() => setRange('custom')}
+            className={`px-3 py-1.5 rounded-md text-sm ${range === 'custom' ? 'bg-primary-100 text-primary-700' : 'text-gray-600 hover:bg-gray-100'}`}
+            aria-pressed={range === 'custom'}
+          >
+            Custom
+          </button>
+          {range === 'custom' && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600" htmlFor="trend-start">From</label>
+              <input id="trend-start" type="date" className="input-field"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                aria-label="Trends start date"
+              />
+              <label className="text-sm text-gray-600" htmlFor="trend-end">To</label>
+              <input id="trend-end" type="date" className="input-field"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                aria-label="Trends end date"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Physical Trends */}
       <div className="card">
         <div className="card-header">
@@ -55,8 +126,8 @@ export const Trends: React.FC<TrendsProps> = ({ physicalData, mentalData }) => {
           <p className="text-sm text-gray-500">Heart rate and sleep over time</p>
         </div>
         <div className="card-content">
-          {recentPhysical.length === 0 ? (
-            <p className="text-gray-500">No data available yet</p>
+          {p.length === 0 ? (
+            <p className="text-gray-500">No data available for the selected range</p>
           ) : (
             <div className="h-64">
               <Line
@@ -95,8 +166,8 @@ export const Trends: React.FC<TrendsProps> = ({ physicalData, mentalData }) => {
           <p className="text-sm text-gray-500">Mood and stress over time</p>
         </div>
         <div className="card-content">
-          {recentMental.length === 0 ? (
-            <p className="text-gray-500">No data available yet</p>
+          {m.length === 0 ? (
+            <p className="text-gray-500">No data available for the selected range</p>
           ) : (
             <div className="h-64">
               <Line

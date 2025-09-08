@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Heart } from 'lucide-react';
 import type { PhysicalHealthData } from '../../types/health';
 
@@ -7,32 +7,195 @@ interface PhysicalSectionProps {
 }
 
 export const PhysicalSection: React.FC<PhysicalSectionProps> = ({ data }) => {
-  const formatDate = (d: any) => new Date(d).toLocaleDateString();
+  const [range, setRange] = useState<'7d' | '14d' | '30d' | '90d' | 'all' | 'custom'>('14d');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [fHeartRate, setFHeartRate] = useState(false);
+  const [fExercise, setFExercise] = useState(false);
+  const [fSleep, setFSleep] = useState(false);
+
+  const toDate = (d: any) => new Date(d);
+  const formatDate = (d: any) => toDate(d).toLocaleDateString();
+
+  const filterByRange = (items: PhysicalHealthData[]) => {
+    const sorted = items.slice().sort((a, b) => +toDate(a.date) - +toDate(b.date));
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+
+    if (range === 'all') return sorted;
+
+    if (range === 'custom' && startDate && endDate) {
+      const start = new Date(startDate).getTime();
+      const end = new Date(endDate).getTime() + (day - 1);
+      return sorted.filter((x) => {
+        const t = toDate(x.date).getTime();
+        return t >= start && t <= end;
+      });
+    }
+
+    const daysMap: Record<Exclude<typeof range, 'custom' | 'all'>, number> = {
+      '7d': 7,
+      '14d': 14,
+      '30d': 30,
+      '90d': 90,
+    } as const;
+
+    const selectedDays = daysMap[range as '7d' | '14d' | '30d' | '90d'] ?? 14;
+    const cutoff = now - selectedDays * day;
+    return sorted.filter((x) => toDate(x.date).getTime() >= cutoff);
+  };
+
+  const filterByMetrics = (items: PhysicalHealthData[]) => {
+    return items.filter((x) => {
+      if (fHeartRate && (x.heartRate == null)) return false;
+      if (fExercise && (x.exerciseMinutes == null || x.exerciseMinutes <= 0)) return false;
+      if (fSleep && (x.sleepHours == null)) return false;
+      return true;
+    });
+  };
+
+  const filtered = filterByMetrics(filterByRange(data));
+
+  const csvEscape = (v: unknown) => {
+    const s = v == null ? '' : String(v);
+    return '"' + s.replaceAll('"', '""') + '"';
+  };
+
+  const downloadCsv = (rows: string[][], filename: string) => {
+    const csv = rows.map(r => r.join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCsv = () => {
+    const headers = [
+      'date',
+      'heartRate',
+      'bloodPressureSystolic',
+      'bloodPressureDiastolic',
+      'weight',
+      'sleepHours',
+      'sleepQuality',
+      'exerciseMinutes',
+      'exerciseType',
+      'exerciseIntensity',
+      'steps',
+      'waterIntake',
+      'notes',
+    ];
+    const rows: string[][] = [headers.map(csvEscape)];
+    filtered.forEach((e) => {
+      rows.push([
+        csvEscape(new Date(e.date as any).toISOString()),
+        csvEscape(e.heartRate ?? ''),
+        csvEscape(e.bloodPressureSystolic ?? ''),
+        csvEscape(e.bloodPressureDiastolic ?? ''),
+        csvEscape(e.weight ?? ''),
+        csvEscape(e.sleepHours ?? ''),
+        csvEscape(e.sleepQuality ?? ''),
+        csvEscape(e.exerciseMinutes ?? ''),
+        csvEscape(e.exerciseType ?? ''),
+        csvEscape(e.exerciseIntensity ?? ''),
+        csvEscape(e.steps ?? ''),
+        csvEscape(e.waterIntake ?? ''),
+        csvEscape(e.notes ?? ''),
+      ]);
+    });
+    const stamp = new Date().toISOString().slice(0,10).replaceAll('-', '');
+    downloadCsv(rows, `physical-data-${stamp}.csv`);
+  };
 
   return (
     <div className="space-y-6">
       <div className="card">
         <div className="card-header">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-              <Heart className="h-5 w-5 text-red-600" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                <Heart className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Physical Health Entries</h3>
+                <p className="text-sm text-gray-500">Your recent measurements and activities</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Physical Health Entries</h3>
-              <p className="text-sm text-gray-500">Your recent measurements and activities</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {(['7d','14d','30d','90d','all'] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setRange(r)}
+                  className={`px-3 py-1.5 rounded-md text-sm ${range === r ? 'bg-primary-100 text-primary-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                  aria-pressed={range === r}
+                >
+                  {r.toUpperCase()}
+                </button>
+              ))}
+              <button
+                onClick={() => setRange('custom')}
+                className={`px-3 py-1.5 rounded-md text-sm ${range === 'custom' ? 'bg-primary-100 text-primary-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                aria-pressed={range === 'custom'}
+              >
+                Custom
+              </button>
+              {range === 'custom' && (
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600" htmlFor="phys-start">From</label>
+                  <input
+                    id="phys-start"
+                    type="date"
+                    className="input-field"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    aria-label="Physical start date"
+                  />
+                  <label className="text-sm text-gray-600" htmlFor="phys-end">To</label>
+                  <input
+                    id="phys-end"
+                    type="date"
+                    className="input-field"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    aria-label="Physical end date"
+                  />
+                </div>
+              )}
+              <button onClick={handleExportCsv} className="btn-secondary ml-2">Export CSV</button>
             </div>
+          </div>
+
+          {/* Metric filters */}
+          <div className="mt-3 flex flex-wrap items-center gap-4 text-sm">
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" className="w-4 h-4" checked={fHeartRate} onChange={(e) => setFHeartRate(e.target.checked)} />
+              <span className="text-gray-600">With Heart Rate</span>
+            </label>
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" className="w-4 h-4" checked={fExercise} onChange={(e) => setFExercise(e.target.checked)} />
+              <span className="text-gray-600">With Exercise</span>
+            </label>
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" className="w-4 h-4" checked={fSleep} onChange={(e) => setFSleep(e.target.checked)} />
+              <span className="text-gray-600">With Sleep</span>
+            </label>
           </div>
         </div>
         <div className="card-content">
-          {data.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="text-center py-10">
               <Heart className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">No physical health data yet</p>
-              <p className="text-sm text-gray-400">Use "Add Data" to record a new entry</p>
+              <p className="text-gray-500">No physical health data for the selected filters</p>
+              <p className="text-sm text-gray-400">Adjust the filters or add a new entry</p>
             </div>
           ) : (
             <div className="space-y-4">
-              {data.slice().reverse().map((entry) => (
+              {filtered.slice().reverse().map((entry) => (
                 <div key={entry.id} className="p-4 rounded-lg border border-gray-200">
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-gray-500">{formatDate(entry.date)}</span>
