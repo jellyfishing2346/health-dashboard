@@ -98,10 +98,16 @@ if min_date is None:
     min_date = date_cls.today()
     max_date = date_cls.today()
 
-start, end = st.sidebar.date_input("Date range", value=(min_date, max_date))
-if isinstance(start, tuple):
-    # Streamlit might return a single date in some versions
-    start, end = start
+date_input_val = st.sidebar.date_input("Date range", value=(min_date, max_date))
+if isinstance(date_input_val, tuple):
+    if len(date_input_val) == 2:
+        start, end = date_input_val
+    elif len(date_input_val) == 1:
+        start = end = date_input_val[0]
+    else:
+        start = end = min_date
+else:
+    start = end = date_input_val
 
 # Filter data
 phys = physical_df.copy()
