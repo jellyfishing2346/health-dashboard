@@ -6,6 +6,16 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy import create_engine, text
 
+def make_pg8000_url(url):
+    import re
+    url = re.sub(r'[?&]schema=[^&]+', '', url)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+pg8000://", 1)
+    elif url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+pg8000://", 1)
+    return url
+
+
 st.set_page_config(page_title="Health Dashboard (Streamlit)", page_icon="💚", layout="wide")
 
 # Prefer secrets over env
@@ -15,10 +25,8 @@ if not DB_URL:
     st.stop()
 
 # SQLAlchemy accepts postgresql+psycopg2, but plain postgresql works for psycopg2-binary
-if DB_URL.startswith("postgresql://"):
-    engine = create_engine(DB_URL)
-elif DB_URL.startswith("postgres://"):
-    engine = create_engine(DB_URL.replace("postgres://", "postgresql://", 1))
+if DB_URL.startswith("postgresql://") or DB_URL.startswith("postgres://"):
+    engine = create_engine(make_pg8000_url(DB_URL), connect_args={})
 else:
     engine = create_engine(DB_URL)
 
@@ -98,10 +106,16 @@ if min_date is None:
     min_date = date_cls.today()
     max_date = date_cls.today()
 
-start, end = st.sidebar.date_input("Date range", value=(min_date, max_date))
-if isinstance(start, tuple):
-    # Streamlit might return a single date in some versions
-    start, end = start
+date_input_val = st.sidebar.date_input("Date range", value=(min_date, max_date))
+if isinstance(date_input_val, tuple):
+    if len(date_input_val) == 2:
+        start, end = date_input_val
+    elif len(date_input_val) == 1:
+        start = end = date_input_val[0]
+    else:
+        start = end = min_date
+else:
+    start = end = date_input_val
 
 # Filter data
 phys = physical_df.copy()
