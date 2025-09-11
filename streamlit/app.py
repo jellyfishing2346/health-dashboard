@@ -117,6 +117,36 @@ if isinstance(date_input_val, tuple):
 else:
     start = end = date_input_val
 
+# Add Physical Entry form
+st.sidebar.header("Add Physical Entry")
+with st.sidebar.form(key="add_phys_form"):
+    entry_date = st.date_input("Date", value=date_cls.today())
+    heart_rate = st.number_input("Heart Rate (bpm)", min_value=30, max_value=220, value=70)
+    steps = st.number_input("Steps", min_value=0, max_value=50000, value=5000)
+    sleep_hours = st.number_input("Sleep Hours", min_value=0.0, max_value=24.0, value=7.0, step=0.1)
+    submitted = st.form_submit_button("Add Entry")
+    if submitted:
+        target_user_id = user_id or (users_df["id"].iloc[0] if not users_df.empty else None)
+        if not target_user_id:
+            st.error("No user selected or available to add entry.")
+        else:
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text('''
+                        INSERT INTO "PhysicalEntry" ("userId", "date", "heartRate", "steps", "sleepHours")
+                        VALUES (:userId, :date, :heartRate, :steps, :sleepHours)
+                    '''), {
+                        "userId": target_user_id,
+                        "date": entry_date,
+                        "heartRate": heart_rate,
+                        "steps": steps,
+                        "sleepHours": sleep_hours
+                    })
+                st.success("Physical entry added!")
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Failed to add entry: {e}")
+
 # Filter data
 phys = physical_df.copy()
 ment = mental_df.copy()
