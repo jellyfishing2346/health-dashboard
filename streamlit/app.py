@@ -6,6 +6,16 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy import create_engine, text
 
+def make_pg8000_url(url):
+    import re
+    url = re.sub(r'[?&]schema=[^&]+', '', url)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+pg8000://", 1)
+    elif url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+pg8000://", 1)
+    return url
+
+
 st.set_page_config(page_title="Health Dashboard (Streamlit)", page_icon="💚", layout="wide")
 
 # Prefer secrets over env
@@ -15,10 +25,8 @@ if not DB_URL:
     st.stop()
 
 # SQLAlchemy accepts postgresql+psycopg2, but plain postgresql works for psycopg2-binary
-if DB_URL.startswith("postgresql://"):
-    engine = create_engine(DB_URL)
-elif DB_URL.startswith("postgres://"):
-    engine = create_engine(DB_URL.replace("postgres://", "postgresql://", 1))
+if DB_URL.startswith("postgresql://") or DB_URL.startswith("postgres://"):
+    engine = create_engine(make_pg8000_url(DB_URL), connect_args={})
 else:
     engine = create_engine(DB_URL)
 
